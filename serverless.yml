@@ -1,0 +1,86 @@
+service: owlflow-flows
+
+frameworkVersion: ">=2.0.0 <3.0.0"
+
+plugins:
+  - serverless-bundle
+
+custom:
+  defaultStage: dev
+  defaultRegion: us-east-1
+  currentStage: ${opt:stage, self:custom.defaultStage}
+  currentRegion: ${opt:region, self:custom.defaultRegion}
+  resourcesPrefix: ${self:service}-${self:custom.currentStage}
+  config: ${file(./config.${self:custom.currentStage}.json)}
+  deploymentBucket: ${self:custom.config.DEPLOYMENT_BUCKET}
+  bundle:
+    sourcemaps: false
+    linting: false
+    packager: yarn
+    forceExclude:
+      - aws-sdk
+
+provider:
+  name: aws
+  runtime: nodejs12.x
+  stage: ${self:custom.currentStage}
+  region: ${self:custom.currentRegion}
+  timeout: 30
+  logRetentionInDays: 14
+  deploymentBucket:
+    name: ${self:custom.deploymentBucket}-${self:provider.region}
+  environment:
+    SERVERLESS_REGION: ${self:custom.config.REGION}
+    LOG_LEVEL: ${self:custom.config.LOG_LEVEL}
+    DEBUG: ${self:custom.config.DEBUG}
+    FLOWS_TABLE: !ImportValue owlflow-common-${self:provider.stage}-FlowsTableName
+    FLOW_ORGANIZATION_ID_WEBHOOK_ID_INDEX_NAME: !ImportValue owlflow-common-${self:provider.stage}-FlowsOrganizationIdWebhookIdIndexName
+    FLOW_NODES_TABLE: !ImportValue owlflow-common-${self:provider.stage}-FlowNodesTableName
+  #apiGateway:
+  #  restApiId: !ImportValue owlflow-common-${self:provider.stage}-ApiGatewayRestApi
+  iam:
+    role:
+      statements:
+        - Effect: 'Allow'
+          Action:
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:Query
+          Resource:
+            - !ImportValue owlflow-common-${self:provider.stage}-FlowsTableArn
+            - !ImportValue owlflow-common-${self:provider.stage}-FlowNodesTableArn
+            - Fn::Join:
+                - ""
+                - - !ImportValue owlflow-common-${self:provider.stage}-FlowsTableArn
+                  - "/index/"
+                  - !ImportValue owlflow-common-${self:provider.stage}-FlowsOrganizationIdWebhookIdIndexName
+
+package:
+  excludeDevDependencies: true
+  individually: false
+  exclude:
+    - .gitattributes
+    - .gitignore
+    - .git/**
+    - .npmrc
+    - .babelrc
+    - README.md
+    - serverless.yml
+
+functions:
+  getFlowContext:
+    handler: handler.getFlowContext
+    name: ${self:custom.resourcesPrefix}-getFlowContext
+    timeout: 6
+    memorySize: 1024
+    layers:
+      - ${self:custom.config.COMMON_LIB_LAYER_ARN}
+
+  getFlowNodeContext:
+    handler: handler.getFlowNodeContext
+    name: ${self:custom.resourcesPrefix}-getFlowNodeContext
+    timeout: 6
+    memorySize: 1024
+    layers:
+      - ${self:custom.config.COMMON_LIB_LAYER_ARN}
